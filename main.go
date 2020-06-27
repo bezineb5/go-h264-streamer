@@ -1,10 +1,11 @@
 package main
 
 import (
-	"go-h264-streamer/stream"
 	"log"
 	"net/http"
 	"strconv"
+
+	"github.com/bezineb5/go-h264-streamer/stream"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"

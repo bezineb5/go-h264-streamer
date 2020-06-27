@@ -1,4 +1,4 @@
-module go-h264-streamer
+module github.com/bezineb5/go-h264-streamer
 
 go 1.14
 

@@ -1,10 +1,11 @@
 package main
 
 import (
-	"go-h264-streamer/stream"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/bezineb5/go-h264-streamer/stream"
 
 	"github.com/gorilla/websocket"
 )

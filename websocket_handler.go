@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go-h264-streamer/stream"
 	"log"
 	"net/http"
 	"time"
@@ -15,7 +16,7 @@ type connection struct {
 
 // WebSocketHandler represents a websocket
 type WebSocketHandler interface {
-	Sender
+	stream.Sender
 	Handler(w http.ResponseWriter, r *http.Request)
 }
 

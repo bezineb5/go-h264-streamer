@@ -2,7 +2,6 @@ package stream
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"log"
 	"os/exec"
@@ -21,8 +20,18 @@ type Sender interface {
 	Send([]byte) error
 }
 
-// StreamVideo streams the video for the Raspberry Pi camera to a websocket
-func StreamVideo(width int, height int, fps int, sender Sender, connectionsChange chan int) {
+// CameraOptions sets the options to send to raspivid
+type CameraOptions struct {
+	Width          int
+	Height         int
+	Fps            int
+	HorizontalFlip bool
+	VerticalFlip   bool
+	Rotation       int
+}
+
+// Video streams the video for the Raspberry Pi camera to a websocket
+func Video(options CameraOptions, sender Sender, connectionsChange chan int) {
 	stopChan := make(chan bool)
 	cameraStarted := false
 
@@ -33,7 +42,7 @@ func StreamVideo(width int, height int, fps int, sender Sender, connectionsChang
 				stopChan <- true
 				cameraStarted = false
 			} else if !cameraStarted {
-				go startCamera(width, height, fps, sender, stopChan)
+				go startCamera(options, sender, stopChan)
 				cameraStarted = true
 			}
 		}
@@ -41,11 +50,33 @@ func StreamVideo(width int, height int, fps int, sender Sender, connectionsChang
 
 }
 
-func startCamera(width int, height int, fps int, sender Sender, stop chan bool) {
-	cmd := exec.Command("raspivid", "-ih", "-t", "0", "-o", "-", "-w", strconv.Itoa(width), "-h", strconv.Itoa(height), "-fps", strconv.Itoa(fps), "-n", "-pf", "baseline")
-	fmt.Println("Started raspicam", cmd.Args)
-	//defer cmd.Wait()
-	//defer fmt.Println("Stopped raspicam")
+func startCamera(options CameraOptions, sender Sender, stop chan bool) {
+	args := []string{
+		"-ih",
+		"-t", "0",
+		"-o", "-",
+		"-w", strconv.Itoa(options.Width),
+		"-h", strconv.Itoa(options.Height),
+		"-fps", strconv.Itoa(options.Fps),
+		"-n",
+		"-pf", "baseline",
+	}
+
+	if options.HorizontalFlip {
+		args = append(args, "--hflip")
+	}
+	if options.VerticalFlip {
+		args = append(args, "--vflip")
+	}
+	if options.Rotation != 0 {
+		args = append(args, "--rotation")
+		args = append(args, strconv.Itoa(options.Rotation))
+	}
+
+	cmd := exec.Command("raspivid", args...)
+	log.Println("Started raspicam", cmd.Args)
+	defer cmd.Wait()
+	defer log.Println("Stopped raspicam")
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -63,17 +94,17 @@ func startCamera(width int, height int, fps int, sender Sender, stop chan bool) 
 	for {
 		select {
 		case <-stop:
-			fmt.Println("Stop requested")
+			log.Println("Stop requested")
 			return
 		default:
 			n, err := stdout.Read(p)
 			if err != nil {
 				if err == io.EOF {
 					//fmt.Println(string(p[:n])) //should handle any remainding bytes.
-					//return
+					log.Println("[Raspivid] EOF")
+					return
 				}
-				fmt.Println(err)
-				//os.Exit(1)
+				log.Println(err)
 			}
 
 			//fmt.Println("Received", p[:n])

@@ -21,21 +21,26 @@ const (
 	fps               = 30
 )
 
-func startWebserver() {
+func main() {
+	options := stream.CameraOptions{
+		Width:          width,
+		Height:         height,
+		Fps:            fps,
+		HorizontalFlip: true,
+		VerticalFlip:   true,
+		Rotation:       0,
+	}
+
 	router := mux.NewRouter()
 
 	// Websocket
 	connectionNumber := make(chan int, 2)
 	wsh := NewWebSocketHandler(connectionNumber)
 	router.HandleFunc(videoWebsocketURL, wsh.Handler)
-	go stream.StreamVideo(width, height, fps, wsh, connectionNumber)
+	go stream.Video(options, wsh, connectionNumber)
 
 	// Static
 	fs := http.FileServer(http.Dir(staticDir))
 	router.PathPrefix(staticURL).Handler(handlers.CompressHandler(http.StripPrefix(staticURL, fs)))
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(port), router))
-}
-
-func main() {
-	startWebserver()
 }

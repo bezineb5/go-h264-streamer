@@ -2,10 +2,12 @@ package stream
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log"
 	"os/exec"
 	"strconv"
+	"sync"
 )
 
 const (
@@ -33,24 +35,29 @@ type CameraOptions struct {
 // Video streams the video for the Raspberry Pi camera to a websocket
 func Video(options CameraOptions, sender Sender, connectionsChange chan int) {
 	stopChan := make(chan bool)
-	cameraStarted := false
+	cameraStarted := sync.Mutex{}
+	firstConnection := true
 
 	for {
 		select {
 		case n := <-connectionsChange:
-			if n <= 0 {
+			if n == 0 {
+				firstConnection = true
 				stopChan <- true
-				cameraStarted = false
-			} else if !cameraStarted {
-				go startCamera(options, sender, stopChan)
-				cameraStarted = true
+			} else if firstConnection {
+				firstConnection = false
+				go startCamera(options, sender, stopChan, &cameraStarted)
 			}
 		}
 	}
 
 }
 
-func startCamera(options CameraOptions, sender Sender, stop chan bool) {
+func startCamera(options CameraOptions, sender Sender, stop chan bool, mutex *sync.Mutex) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	defer log.Println("Stopped raspivid")
+
 	args := []string{
 		"-ih",
 		"-t", "0",
@@ -73,10 +80,10 @@ func startCamera(options CameraOptions, sender Sender, stop chan bool) {
 		args = append(args, strconv.Itoa(options.Rotation))
 	}
 
-	cmd := exec.Command("raspivid", args...)
-	log.Println("Started raspicam", cmd.Args)
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "raspivid", args...)
 	defer cmd.Wait()
-	defer log.Println("Stopped raspicam")
+	defer cancel()
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -85,6 +92,7 @@ func startCamera(options CameraOptions, sender Sender, stop chan bool) {
 	if err := cmd.Start(); err != nil {
 		log.Fatal(err)
 	}
+	log.Println("Started raspivid", cmd.Args)
 
 	p := make([]byte, readBufferSize)
 	buffer := make([]byte, bufferSizeKB*1024)

@@ -1,11 +1,10 @@
 package main
 
 import (
+	"io"
 	"log"
 	"net/http"
 	"time"
-
-	"github.com/bezineb5/go-h264-streamer/stream"
 
 	"github.com/gorilla/websocket"
 )
@@ -17,7 +16,7 @@ type connection struct {
 
 // WebSocketHandler represents a websocket
 type WebSocketHandler interface {
-	stream.Sender
+	io.Writer
 	Handler(w http.ResponseWriter, r *http.Request)
 }
 
@@ -145,13 +144,14 @@ func (wsh *webSocketHandler) run() {
 
 // Send puts message body into the queue of messages that have to be
 // broadcasted to clients.
-func (wsh *webSocketHandler) Send(data []byte) (err error) {
+func (wsh *webSocketHandler) Write(data []byte) (n int, err error) {
 	// Optimization: don't send if there is no connection
 	if len(wsh.connections) <= 0 {
 		return
 	}
 
 	wsh.broadcast <- data
+	n = len(data)
 	return
 }
 

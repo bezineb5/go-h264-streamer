@@ -17,11 +17,6 @@ const (
 
 var nalSeparator = []byte{0, 0, 0, 1} //NAL break
 
-// Sender is a interface which implements the ability to transmit/broadcast messages
-type Sender interface {
-	Send([]byte) error
-}
-
 // CameraOptions sets the options to send to raspivid
 type CameraOptions struct {
 	Width          int
@@ -33,27 +28,24 @@ type CameraOptions struct {
 }
 
 // Video streams the video for the Raspberry Pi camera to a websocket
-func Video(options CameraOptions, sender Sender, connectionsChange chan int) {
+func Video(options CameraOptions, writer io.Writer, connectionsChange chan int) {
 	stopChan := make(chan bool)
 	cameraStarted := sync.Mutex{}
 	firstConnection := true
 
-	for {
-		select {
-		case n := <-connectionsChange:
-			if n == 0 {
-				firstConnection = true
-				stopChan <- true
-			} else if firstConnection {
-				firstConnection = false
-				go startCamera(options, sender, stopChan, &cameraStarted)
-			}
+	for n := range connectionsChange {
+		if n == 0 {
+			firstConnection = true
+			stopChan <- true
+		} else if firstConnection {
+			firstConnection = false
+			go startCamera(options, writer, stopChan, &cameraStarted)
 		}
 	}
 
 }
 
-func startCamera(options CameraOptions, sender Sender, stop chan bool, mutex *sync.Mutex) {
+func startCamera(options CameraOptions, writer io.Writer, stop chan bool, mutex *sync.Mutex) {
 	mutex.Lock()
 	defer mutex.Unlock()
 	defer log.Println("Stopped raspivid")
@@ -133,7 +125,7 @@ func startCamera(options CameraOptions, sender Sender, stop chan bool, mutex *sy
 				// Boadcast before the NAL
 				broadcast := make([]byte, nalIndex)
 				copy(broadcast, buffer)
-				sender.Send(broadcast)
+				writer.Write(broadcast)
 
 				// Shift
 				copy(buffer, buffer[nalIndex:currentPos])

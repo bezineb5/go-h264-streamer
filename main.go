@@ -29,6 +29,7 @@ func main() {
 		HorizontalFlip: true,
 		VerticalFlip:   true,
 		Rotation:       0,
+		UseLibcamera:   false,
 	}
 
 	router := mux.NewRouter()

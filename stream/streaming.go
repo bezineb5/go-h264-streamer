@@ -13,6 +13,9 @@ import (
 const (
 	readBufferSize = 4096
 	bufferSizeKB   = 256
+
+	legacyCommand    = "raspivid"
+	libcameraCommand = "libcamera-vid"
 )
 
 var nalSeparator = []byte{0, 0, 0, 1} //NAL break
@@ -25,6 +28,7 @@ type CameraOptions struct {
 	HorizontalFlip bool
 	VerticalFlip   bool
 	Rotation       int
+	UseLibcamera   bool // Set to true to enable libcamera, otherwise use legacy raspivid stack
 }
 
 // Video streams the video for the Raspberry Pi camera to a websocket
@@ -51,14 +55,14 @@ func startCamera(options CameraOptions, writer io.Writer, stop chan bool, mutex 
 	defer log.Println("Stopped raspivid")
 
 	args := []string{
-		"-ih",
-		"-t", "0",
-		"-o", "-",
-		"-w", strconv.Itoa(options.Width),
-		"-h", strconv.Itoa(options.Height),
-		"-fps", strconv.Itoa(options.Fps),
-		"-n",
-		"-pf", "baseline",
+		"--inline", // H264: Force PPS/SPS header with every I frame
+		"-t", "0",  // Disable timeout
+		"-o", "-", // Output to stdout
+		"--width", strconv.Itoa(options.Width),
+		"--height", strconv.Itoa(options.Height),
+		"--framerate", strconv.Itoa(options.Fps),
+		"-n",                    // Do not show a preview window
+		"--profile", "baseline", // H264 profile
 	}
 
 	if options.HorizontalFlip {
@@ -71,9 +75,15 @@ func startCamera(options CameraOptions, writer io.Writer, stop chan bool, mutex 
 		args = append(args, "--rotation")
 		args = append(args, strconv.Itoa(options.Rotation))
 	}
+	var command string
+	if options.UseLibcamera {
+		command = libcameraCommand
+	} else {
+		command = legacyCommand
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "raspivid", args...)
+	cmd := exec.CommandContext(ctx, command, args...)
 	defer cmd.Wait()
 	defer cancel()
 
@@ -84,7 +94,7 @@ func startCamera(options CameraOptions, writer io.Writer, stop chan bool, mutex 
 	if err := cmd.Start(); err != nil {
 		log.Fatal(err)
 	}
-	log.Println("Started raspivid", cmd.Args)
+	log.Println("Started "+command, cmd.Args)
 
 	p := make([]byte, readBufferSize)
 	buffer := make([]byte, bufferSizeKB*1024)
@@ -101,17 +111,15 @@ func startCamera(options CameraOptions, writer io.Writer, stop chan bool, mutex 
 			if err != nil {
 				if err == io.EOF {
 					//fmt.Println(string(p[:n])) //should handle any remainding bytes.
-					log.Println("[Raspivid] EOF")
+					log.Println("[" + command + "] EOF")
 					return
 				}
 				log.Println(err)
 			}
 
-			//fmt.Println("Received", p[:n])
 			copied := copy(buffer[currentPos:], p[:n])
 			startPosSearch := currentPos - NALlen
 			endPos := currentPos + copied
-			//fmt.Println("Buffer", buffer[:endPos])
 
 			if startPosSearch < 0 {
 				startPosSearch = 0

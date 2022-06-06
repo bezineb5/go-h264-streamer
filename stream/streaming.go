@@ -33,23 +33,23 @@ type CameraOptions struct {
 
 // Video streams the video for the Raspberry Pi camera to a websocket
 func Video(options CameraOptions, writer io.Writer, connectionsChange chan int) {
-	stopChan := make(chan bool)
+	stopChan := make(chan struct{})
+	defer close(stopChan)
 	cameraStarted := sync.Mutex{}
 	firstConnection := true
 
 	for n := range connectionsChange {
 		if n == 0 {
 			firstConnection = true
-			stopChan <- true
+			stopChan <- struct{}{}
 		} else if firstConnection {
 			firstConnection = false
 			go startCamera(options, writer, stopChan, &cameraStarted)
 		}
 	}
-
 }
 
-func startCamera(options CameraOptions, writer io.Writer, stop chan bool, mutex *sync.Mutex) {
+func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, mutex *sync.Mutex) {
 	mutex.Lock()
 	defer mutex.Unlock()
 	defer log.Println("Stopped raspivid")

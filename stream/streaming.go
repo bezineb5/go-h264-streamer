@@ -89,10 +89,12 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	if err := cmd.Start(); err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		return
 	}
 	log.Println("Started "+command, cmd.Args)
 
@@ -110,7 +112,6 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 			n, err := stdout.Read(p)
 			if err != nil {
 				if err == io.EOF {
-					//fmt.Println(string(p[:n])) //should handle any remainding bytes.
 					log.Println("[" + command + "] EOF")
 					return
 				}

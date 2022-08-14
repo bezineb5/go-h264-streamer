@@ -22,13 +22,14 @@ var nalSeparator = []byte{0, 0, 0, 1} //NAL break
 
 // CameraOptions sets the options to send to raspivid
 type CameraOptions struct {
-	Width          int
-	Height         int
-	Fps            int
-	HorizontalFlip bool
-	VerticalFlip   bool
-	Rotation       int
-	UseLibcamera   bool // Set to true to enable libcamera, otherwise use legacy raspivid stack
+	Width               int
+	Height              int
+	Fps                 int
+	HorizontalFlip      bool
+	VerticalFlip        bool
+	Rotation            int
+	UseLibcamera        bool // Set to true to enable libcamera, otherwise use legacy raspivid stack
+	AutoDetectLibCamera bool // Set to true to automatically detect if libcamera is available. If true, UseLibcamera is ignored.
 }
 
 // Video streams the video for the Raspberry Pi camera to a websocket
@@ -75,12 +76,8 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 		args = append(args, "--rotation")
 		args = append(args, strconv.Itoa(options.Rotation))
 	}
-	var command string
-	if options.UseLibcamera {
-		command = libcameraCommand
-	} else {
-		command = legacyCommand
-	}
+
+	command := determineCameraCommand(options)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, command, args...)
@@ -141,5 +138,21 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 				currentPos = currentPos - nalIndex
 			}
 		}
+	}
+}
+
+func determineCameraCommand(options CameraOptions) string {
+	if options.AutoDetectLibCamera {
+		_, err := exec.LookPath(libcameraCommand)
+		if err == nil {
+			return libcameraCommand
+		}
+		return legacyCommand
+	}
+
+	if options.UseLibcamera {
+		return libcameraCommand
+	} else {
+		return legacyCommand
 	}
 }

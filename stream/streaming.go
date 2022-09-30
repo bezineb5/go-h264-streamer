@@ -59,6 +59,7 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 		"--inline", // H264: Force PPS/SPS header with every I frame
 		"-t", "0",  // Disable timeout
 		"-o", "-", // Output to stdout
+		"--flush", // Flush output files immediately
 		"--width", strconv.Itoa(options.Width),
 		"--height", strconv.Itoa(options.Height),
 		"--framerate", strconv.Itoa(options.Fps),

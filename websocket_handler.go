@@ -2,7 +2,7 @@ package main
 
 import (
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -22,11 +22,11 @@ type WebSocketHandler interface {
 
 // webSocketHandler main structure
 type webSocketHandler struct {
-	connections      map[*connection]bool // Registered connections.
-	broadcast        chan []byte          // Inbound messages from the connections.
-	register         chan *connection     // Register requests from the connections.
-	unregister       chan *connection     // Unregister requests from connections.
-	connectionNumber chan int
+	connections     map[*connection]bool // Registered connections.
+	broadcast       chan []byte          // Inbound messages from the connections.
+	register        chan *connection     // Register requests from the connections.
+	unregister      chan *connection     // Unregister requests from connections.
+	connectionCount chan int
 }
 
 var upgrader = websocket.Upgrader{
@@ -40,15 +40,12 @@ func (c *connection) reader(errCh chan bool) {
 	for {
 		messageType, message, err := c.ws.ReadMessage()
 		if err != nil {
-			log.Println("[Reader] Error", err)
+			slog.Error("connection: Error reading message from websocket: ", err)
 			defer func() { errCh <- true }()
 			return
 		}
 
-		log.Println("Received message ", messageType, message, err)
-		log.Println("Received message " + string(message))
-
-		//parseMessageSent(string(message))
+		slog.Info("connection: Received message; ignoring", slog.Int("messageType", messageType), slog.String("message", string(message)))
 	}
 }
 
@@ -57,8 +54,8 @@ func (c *connection) writer(errCh chan bool) {
 	for msg := range c.send {
 		err := c.ws.WriteMessage(websocket.BinaryMessage, msg)
 		if err != nil {
-			log.Println("[Writer] Error", err)
-			defer func() { errCh <- true }()
+			slog.Error("connection: Error writing message to websocket: ", err)
+			errCh <- true
 			break
 		}
 	}
@@ -71,7 +68,7 @@ func (wsh *webSocketHandler) Handler(w http.ResponseWriter, r *http.Request) {
 
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("Got error while upgrading connection", err)
+		slog.Error("connection: Error upgrading connection to websocket: ", err)
 		return
 	}
 	defer ws.Close()
@@ -79,7 +76,7 @@ func (wsh *webSocketHandler) Handler(w http.ResponseWriter, r *http.Request) {
 	// we have a initialized websocket connection.
 	c := &connection{ws, make(chan []byte, 10)}
 
-	log.Println("Got connection")
+	slog.Debug("connection: Got connection")
 	// put it in the registration channel for the hub to take it.
 	wsh.register <- c
 	// create error channel. It will be used in case of errors to
@@ -107,25 +104,21 @@ func (wsh *webSocketHandler) run() {
 	for {
 		select {
 		case c := <-wsh.register:
-			log.Println("[hub] register")
 			wsh.connections[c] = true
-			log.Println("Register call end -> Number of current connections: ", len(wsh.connections))
-			if wsh.connectionNumber != nil {
-				wsh.connectionNumber <- len(wsh.connections)
+			slog.Debug("webSocketHandler: Register call", slog.Int("number of connections", len(wsh.connections)))
+			if wsh.connectionCount != nil {
+				wsh.connectionCount <- len(wsh.connections)
 			}
-			break
 
 		case c := <-wsh.unregister:
-			log.Println("[hub] unregister")
 			if _, ok := wsh.connections[c]; ok {
 				delete(wsh.connections, c)
 				close(c.send)
 			}
-			log.Println("Unregister call end -> Number of current connections: ", len(wsh.connections))
-			if wsh.connectionNumber != nil {
-				wsh.connectionNumber <- len(wsh.connections)
+			slog.Debug("webSocketHandler: Unregister call", slog.Int("number of connections", len(wsh.connections)))
+			if wsh.connectionCount != nil {
+				wsh.connectionCount <- len(wsh.connections)
 			}
-			break
 
 		case msg := <-wsh.broadcast:
 			for c := range wsh.connections {
@@ -133,36 +126,34 @@ func (wsh *webSocketHandler) run() {
 				case c.send <- msg:
 					continue
 				case <-time.After(100 * time.Millisecond):
-					log.Println("[WSHandler] Skipping message to connection")
+					slog.Warn("webSocketHandler: Timeout sending message to connection")
 					// skip message if timeout
 				}
 			}
-			break
 		}
 	}
 }
 
 // Send puts message body into the queue of messages that have to be
 // broadcasted to clients.
-func (wsh *webSocketHandler) Write(data []byte) (n int, err error) {
+func (wsh *webSocketHandler) Write(data []byte) (int, error) {
 	// Optimization: don't send if there is no connection
 	if len(wsh.connections) <= 0 {
-		return
+		return 0, nil
 	}
 
 	wsh.broadcast <- data
-	n = len(data)
-	return
+	return len(data), nil
 }
 
 // NewWebSocketHandler builds new websocket handler to communicate upstream
-func NewWebSocketHandler(connectionNumber chan int) WebSocketHandler {
+func NewWebSocketHandler(connectionCount chan int) WebSocketHandler {
 	wsh := webSocketHandler{
-		broadcast:        make(chan []byte),
-		register:         make(chan *connection),
-		unregister:       make(chan *connection),
-		connections:      make(map[*connection]bool),
-		connectionNumber: connectionNumber,
+		broadcast:       make(chan []byte),
+		register:        make(chan *connection),
+		unregister:      make(chan *connection),
+		connections:     make(map[*connection]bool),
+		connectionCount: connectionCount,
 	}
 
 	go wsh.run()

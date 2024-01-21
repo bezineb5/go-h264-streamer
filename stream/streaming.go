@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"log"
+	"log/slog"
 	"os/exec"
 	"strconv"
 	"sync"
@@ -41,9 +41,11 @@ func Video(options CameraOptions, writer io.Writer, connectionsChange chan int) 
 
 	for n := range connectionsChange {
 		if n == 0 {
+			// No more connections, stop the camera
 			firstConnection = true
 			stopChan <- struct{}{}
 		} else if firstConnection {
+			// First connection, start the camera
 			firstConnection = false
 			go startCamera(options, writer, stopChan, &cameraStarted)
 		}
@@ -53,7 +55,7 @@ func Video(options CameraOptions, writer io.Writer, connectionsChange chan int) 
 func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, mutex *sync.Mutex) {
 	mutex.Lock()
 	defer mutex.Unlock()
-	defer log.Println("Stopped raspivid")
+	defer slog.Info("startCamera: Stopped camera")
 
 	args := []string{
 		"--inline", // H264: Force PPS/SPS header with every I frame
@@ -87,14 +89,14 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Println(err)
+		slog.Error("startCamera: Error getting stdout pipe", slog.Any("error", err))
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		log.Print(err)
+		slog.Error("startCamera: Error starting camera", slog.Any("error", err))
 		return
 	}
-	log.Println("Started "+command, cmd.Args)
+	slog.Debug("startCamera: Started camera", slog.String("command", command), slog.Any("args", args))
 
 	p := make([]byte, readBufferSize)
 	buffer := make([]byte, bufferSizeKB*1024)
@@ -104,16 +106,17 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 	for {
 		select {
 		case <-stop:
-			log.Println("Stop requested")
+			slog.Debug("startCamera: Stop requested")
 			return
 		default:
 			n, err := stdout.Read(p)
 			if err != nil {
 				if err == io.EOF {
-					log.Println("[" + command + "] EOF")
+					slog.Debug("startCamera: EOF", slog.String("command", command))
 					return
 				}
-				log.Println(err)
+				slog.Error("startCamera: Error reading from camera; ignoring", slog.Any("error", err))
+				continue
 			}
 
 			copied := copy(buffer[currentPos:], p[:n])

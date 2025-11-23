@@ -14,8 +14,9 @@ const (
 	readBufferSize = 4096
 	bufferSizeKB   = 256
 
-	legacyCommand    = "raspivid"
-	libcameraCommand = "libcamera-vid"
+	legacyCommand       = "raspivid"
+	libcameraCommandOld = "libcamera-vid"
+	libcameraCommandNew = "rpicam-vid"
 )
 
 var nalSeparator = []byte{0, 0, 0, 1} //NAL break
@@ -96,7 +97,7 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 		slog.Error("startCamera: Error starting camera", slog.Any("error", err))
 		return
 	}
-	slog.Debug("startCamera: Started camera", slog.String("command", command), slog.Any("args", args))
+	slog.Info("startCamera: Started camera", slog.String("command", command), slog.Any("args", args))
 
 	p := make([]byte, readBufferSize)
 	buffer := make([]byte, bufferSizeKB*1024)
@@ -106,7 +107,7 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 	for {
 		select {
 		case <-stop:
-			slog.Debug("startCamera: Stop requested")
+			slog.Info("startCamera: Stop requested")
 			return
 		default:
 			n, err := stdout.Read(p)
@@ -145,18 +146,31 @@ func startCamera(options CameraOptions, writer io.Writer, stop <-chan struct{}, 
 	}
 }
 
+func searchFirstExecutable(path ...string) string {
+	if len(path) == 0 {
+		return ""
+	}
+
+	// Split: last one is the default, it is not searched for
+	last := path[len(path)-1]
+	path = path[:len(path)-1]
+	for _, p := range path {
+		if _, err := exec.LookPath(p); err == nil {
+			return p
+		}
+	}
+
+	return last
+}
+
 func determineCameraCommand(options CameraOptions) string {
 	if options.AutoDetectLibCamera {
-		_, err := exec.LookPath(libcameraCommand)
-		if err == nil {
-			return libcameraCommand
-		}
-		return legacyCommand
+		return searchFirstExecutable(libcameraCommandNew, libcameraCommandOld, legacyCommand)
 	}
 
 	if options.UseLibcamera {
-		return libcameraCommand
-	} else {
-		return legacyCommand
+		return searchFirstExecutable(libcameraCommandNew, libcameraCommandOld)
 	}
+
+	return searchFirstExecutable(legacyCommand)
 }
